@@ -1,0 +1,60 @@
+[package]
+name = "tofu"
+version = "0.1.0"
+edition = "2021"
+authors = ["Project Tofu Contributors"]
+
+[dependencies]
+# wgpu: Cross-platform GPU abstraction (Metal/Vulkan/WebGPU/DX12)
+wgpu = "23.0"
+# Window creation and event handling
+winit = "0.30"
+# Async runtime for wgpu
+pollster = "0.3"
+# Math library
+glam = "0.29"
+# Fast random number generation
+rand = "0.8"
+# Zero-copy casting between types
+bytemuck = { version = "1.14", features = ["derive"] }
+# Logging
+env_logger = "0.11"
+# JSON parsing for Lego Protocol
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# AI Brain (Block 1) - Gemini API integration
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1.0", features = ["full"] }
+dotenv = "0.15"
+# WebGPU support (optional, for web builds)
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+log = "0.4"
+
+[features]
+default = []
+webgl = ["wgpu/webgl"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "tofu"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# iOS/Android platform configs
+[target.aarch64-apple-ios]
+rustflags = ["-C", "link-arg=-fapplication-extension"]
+
+[target.aarch64-linux-android]
+linker = "aarch64-linux-android-clang"

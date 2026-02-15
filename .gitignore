@@ -1,0 +1,110 @@
+# ===================================
+# Project Tofu - Git Ignore Rules
+# ===================================
+
+# Sensitive Information (NEVER COMMIT!)
+# ===================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.crt
+secrets/
+credentials/
+api_keys.txt
+
+# Rust Build Artifacts
+# ===================================
+/target/
+Cargo.lock
+**/*.rs.bk
+*.rlib
+*.rmeta
+
+# IDE & Editor Files
+# ===================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.atom/
+.buildlog/
+.history
+.metals/
+.bloop/
+.bsp/
+*.sublime-project
+*.sublime-workspace
+
+# OS Generated Files
+# ===================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Compiled Artifacts
+# ===================================
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+*.class
+*.pyc
+*.pyo
+__pycache__/
+
+# WebAssembly Builds
+# ===================================
+/web/
+pkg/
+*.wasm
+wasm-pack.log
+node_modules/
+
+# Debug & Profiling
+# ===================================
+/debug/
+*.pdb
+*.profdata
+flamegraph.svg
+perf.data*
+
+# Test & Temporary Files
+# ===================================
+test_json
+test_json.rs
+*.tmp
+*.temp
+*.bak
+*.swp
+*.orig
+*~
+
+# Documentation Builds
+# ===================================
+/book/
+/mdbook/
+docs/_build/
+
+# Coverage Reports
+# ===================================
+*.gcda
+*.gcno
+*.profraw
+coverage/
+tarpaulin-report.html
+lcov.info
+
+# Logs & Crash Reports
+# ===================================
+*.log
+*.err
+crash-*.txt
