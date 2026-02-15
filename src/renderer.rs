@@ -333,4 +333,99 @@ impl Renderer {
     pub fn size(&self) -> winit::dpi::PhysicalSize<u32> {
         self.size
     }
+
+    /// Get reference to device for UI overlay
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    /// Get reference to queue for UI overlay
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Get surface format for UI overlay
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.config.format
+    }
+
+    /// Render UI overlay on top of particles
+    pub fn render_ui_overlay<F>(&mut self, particle_system: &ParticleSystem, time: f32, ui_render_fn: F) -> Result<(), wgpu::SurfaceError>
+    where
+        F: FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView, f32, f32, f32),
+    {
+        // Update particle buffer
+        self.queue.write_buffer(
+            &self.particle_buffer,
+            0,
+            particle_system.as_bytes(),
+        );
+
+        // Update uniforms
+        let uniforms = Uniforms {
+            screen_size: [self.size.width as f32, self.size.height as f32],
+            time,
+            _padding: 0.0,
+        };
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[uniforms]),
+        );
+
+        // Get surface texture
+        let output = self.surface.get_current_texture()?;
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create command encoder
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+
+        // Render particles first
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Particle Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.particle_buffer.slice(..));
+
+            // Draw all particles in ONE draw call (instancing)
+            render_pass.draw(0..6, 0..self.particle_count as u32);
+        }
+
+        // Then render UI overlay
+        ui_render_fn(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &view,
+            self.size.width as f32,
+            self.size.height as f32,
+            time,
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        Ok(())
+    }
 }

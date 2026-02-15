@@ -81,8 +81,48 @@ Why Tofu?
 * **Absorbs Flavor:** They take on the "flavor" (context) of whatever the AI pours onto them.
 * **Shape Shifting:** Tofu can be soft, firm, cubed, or sliced. Our UI can be a graph, a chat bubble, a 3D model, or a button.
 
-## **4. Next Steps (Roadmap)**
+## **4. How to Use**
+
+### **Quick Start**
+
+1. **Set up your API key:**
+   ```bash
+   # Create a .env file
+   echo "GEMINI_API_KEY=your_key_here" > .env
+   ```
+   Get a free Gemini API key at: https://makersuite.google.com/app/apikey
+
+2. **Run Voice Mode (Default):**
+   ```bash
+   cargo run --release
+   ```
+   - Click the **blue mic button** (top-right corner)
+   - Speak your visualization (e.g., "Show me a DNA helix")
+   - Click again to stop and process
+   - Watch particles animate!
+
+3. **Or run Text Mode:**
+   ```bash
+   cargo run --release -- --text
+   ```
+   - Type your prompts in the terminal
+   - Press Enter to visualize
+
+### **Examples to Try**
+
+Click mic button and say:
+- "Show me a DNA helix"
+- "Create a spiral galaxy"
+- "Visualize the Eiffel Tower"
+- "Make a heart shape"
+- "Show me quantum particles"
+
+📖 **[Full Voice Mode Guide →](docs/VOICE_MODE.md)**
+
+---
+
+## **5. Next Steps (Roadmap)**
 
 1. **Refine Physics:** Add "spring" physics to the Rust runner so the particles bounce slightly when they arrive (giving it organic weight).
-2. **Connect Block 1 & 2:** Create a simple script where a text command ("Cube") triggers the Rust runner to switch shapes without manual key presses.
-3. **The "Lego" Protocol:** Define the standard JSON schema that allows the AI to control the Rust renderer.
+2. **Multi-modal Input:** Expand beyond voice to support sketch-based input, gesture control, etc.
+3. **The "Lego" Protocol:** Continue refining the JSON schema that allows the AI to control the Rust renderer.
