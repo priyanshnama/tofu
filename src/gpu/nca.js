@@ -259,10 +259,16 @@ async function runRDS(device, nca, goalGrid) {
 export async function buildNCA(device) {
     const weights = await fetchWeights();
     if (weights) {
-        console.log('[nca] Loaded trained weights → MLP mode');
-        return buildMLP(device, weights);
+        try {
+            const handle = await buildMLP(device, weights);
+            console.log('[nca] MLP mode active (trained weights loaded)');
+            return handle;
+        } catch (e) {
+            console.warn('[nca] MLP pipeline failed, falling back to RDS:', e);
+        }
+    } else {
+        console.log('[nca] No weights found → RDS fallback  |  run: cd training && python train_nca.py');
     }
-    console.log('[nca] No weights found → RDS fallback (run training/train_nca.py to upgrade)');
     return buildRDS(device);
 }
 

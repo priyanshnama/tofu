@@ -47,14 +47,23 @@ GRID       = 128       # density grid resolution (must match NCA_W/H in WGSL)
 C_STATE    = 16        # NCA state channels  (must match C in WGSL)
 N_HIDDEN   = 64        # MLP hidden units    (must match NHD in WGSL)
 FIRE_RATE  = 0.5       # fraction of cells that update per step
-BATCH      = 4         # training batch size
+BATCH      = 8         # training batch size  (doubled for Apple Silicon throughput)
 POOL_SIZE  = 256       # experience replay pool size
 STEPS_MIN  = 16        # curriculum: initial step count
 STEPS_MAX  = 64        # curriculum: final step count
-N_ITER     = 10_000    # total training iterations
+N_ITER     = 20_000    # training iterations  (more = better quality on fast hardware)
 LR         = 2e-3      # Adam learning rate
-DEVICE     = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-OUT_PATH   = os.path.join(os.path.dirname(__file__), '..', 'public', 'nca_weights.json')
+
+# ── Device selection: MPS (Apple Silicon) > CUDA > CPU ───────────────────────
+def _select_device():
+    if torch.backends.mps.is_available():
+        return torch.device('mps')
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    return torch.device('cpu')
+
+DEVICE  = _select_device()
+OUT_PATH = os.path.join(os.path.dirname(__file__), '..', 'public', 'nca_weights.json')
 
 
 # ── Shape generators (Python mirrors of src/shapes/*.js) ─────────────────────
