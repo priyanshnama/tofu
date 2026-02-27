@@ -14,29 +14,35 @@ secrets/
 credentials/
 api_keys.txt
 
-# Rust Build Artifacts
+# Node.js
 # ===================================
-/target/
-Cargo.lock
-**/*.rs.bk
-*.rlib
-*.rmeta
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
 
-# IDE & Editor Files
+# Python
 # ===================================
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.atom/
-.buildlog/
-.history
-.metals/
-.bloop/
-.bsp/
-*.sublime-project
-*.sublime-workspace
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+*.dist-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Binary / Compiled Data Files
+# ===================================
+backend/*.bin
+public/*.bin
+*.bin
 
 # OS Generated Files
 # ===================================
@@ -49,62 +55,31 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 
-# Compiled Artifacts
+# IDE & Editor Files
 # ===================================
-*.o
-*.so
-*.dylib
-*.dll
-*.exe
-*.class
-*.pyc
-*.pyo
-__pycache__/
-
-# WebAssembly Builds
-# ===================================
-/web/
-pkg/
-*.wasm
-wasm-pack.log
-node_modules/
-
-# Debug & Profiling
-# ===================================
-/debug/
-*.pdb
-*.profdata
-flamegraph.svg
-perf.data*
-
-# Test & Temporary Files
-# ===================================
-test_json
-test_json.rs
-*.tmp
-*.temp
-*.bak
+.vscode/
+.idea/
 *.swp
-*.orig
+*.swo
 *~
+.history/
+*.sublime-project
+*.sublime-workspace
 
-# Documentation Builds
-# ===================================
-/book/
-/mdbook/
-docs/_build/
-
-# Coverage Reports
-# ===================================
-*.gcda
-*.gcno
-*.profraw
-coverage/
-tarpaulin-report.html
-lcov.info
-
-# Logs & Crash Reports
+# Logs & Temp Files
 # ===================================
 *.log
 *.err
+*.tmp
+*.temp
+*.bak
+*.orig
 crash-*.txt
+
+# Coverage & Profiling
+# ===================================
+coverage/
+*.profraw
+*.profdata
+flamegraph.svg
+perf.data*

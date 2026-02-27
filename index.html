@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tofu</title>
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      overflow: hidden;
+    }
+
+    /* The WebGPU canvas — fills the entire viewport */
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Error overlay — hidden by default, made visible via JS */
+    #error {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+    }
+    #error.visible {
+      display: grid;
+      place-items: center;
+    }
+    #error-box {
+      max-width: 500px;
+      padding: 2rem 2.5rem;
+      border: 1px solid #ff4455;
+      border-radius: 6px;
+      color: #ff4455;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    #error-box code {
+      background: rgba(255,68,85,0.12);
+      padding: 0.1em 0.4em;
+      border-radius: 3px;
+    }
+
+    /* Minimal HUD — top-left, non-interactive */
+    #hud {
+      position: fixed;
+      top: 14px;
+      left: 16px;
+      color: #00ff55;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.07em;
+      line-height: 1.8;
+      opacity: 0.5;
+      pointer-events: none;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- WebGPU draws directly into this canvas -->
+  <canvas id="canvas"></canvas>
+
+  <!-- Shown only when WebGPU is not available -->
+  <div id="error" role="alert">
+    <div id="error-box">
+      &#9888; WebGPU not available<br><br>
+      <span id="error-msg"></span><br><br>
+      Requires Chrome 113+, Edge 113+, or Safari 18+ on a supported OS.<br>
+      In Chrome you can enable the flag at
+      <code>chrome://flags/#enable-unsafe-webgpu</code>.
+    </div>
+  </div>
+
+  <!-- Stats overlay -->
+  <div id="hud">
+    TOFU &nbsp;&middot;&nbsp; 5000 ATOMS &nbsp;&middot;&nbsp; 1D UNIVERSE &nbsp;&middot;&nbsp; WebGPU<br>
+    <span id="fps">-- fps</span>
+    &nbsp;&middot;&nbsp;
+    <span id="status">wander</span>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

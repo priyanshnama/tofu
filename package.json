@@ -1,0 +1,17 @@
+{
+  "name": "tofu",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev":     "vite",
+    "backend": "uvicorn backend.server:app --host 127.0.0.1 --port 8765 --reload"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "vite": "^7.3.1"
+  }
+}
