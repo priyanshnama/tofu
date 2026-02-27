@@ -5,37 +5,143 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>tofu</title>
   <style>
-    *, *::before, *::after {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       background: #000;
       overflow: hidden;
+      display: flex;
+      height: 100vh;
+      width: 100vw;
     }
 
-    /* The WebGPU canvas — fills the entire viewport */
+    /* ── Left panel ─────────────────────────────────────────── */
+    #panel {
+      width: 280px;
+      min-width: 280px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #0f2a14;
+      background: #010d03;
+      z-index: 10;
+    }
+
+    #hud {
+      flex: 1;
+      padding: 18px 16px 12px;
+      color: #00ff55;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.07em;
+      line-height: 2.0;
+      opacity: 0.75;
+      user-select: none;
+      overflow-y: auto;
+    }
+
+    #hud .label {
+      color: #005522;
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+      margin-top: 12px;
+    }
+    #hud .label:first-child { margin-top: 0; }
+
+    #panel-divider { height: 1px; background: #0f2a14; }
+
+    #input-area {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    #input-label {
+      color: #005522;
+      font-family: 'Courier New', monospace;
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      user-select: none;
+    }
+
+    #prompt-box {
+      width: 100%;
+      min-height: 60px;
+      max-height: 140px;
+      resize: none;
+      background: #000e04;
+      border: 1px solid #0f2a14;
+      border-radius: 4px;
+      color: #00ff55;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      line-height: 1.6;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    #prompt-box::placeholder { color: #0a3d1a; }
+    #prompt-box:focus { border-color: #1a6634; }
+
+    #send-btn {
+      align-self: flex-end;
+      background: none;
+      border: 1px solid #0f2a14;
+      border-radius: 3px;
+      color: #00ff55;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      padding: 5px 14px;
+      cursor: pointer;
+      opacity: 0.6;
+      transition: opacity 0.15s, border-color 0.15s;
+    }
+    #send-btn:hover  { opacity: 1.0; border-color: #1a6634; }
+    #send-btn:active { opacity: 0.4; }
+
+    #response {
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      line-height: 1.6;
+      color: #00cc44;
+      opacity: 0.7;
+      max-height: 60px;
+      overflow-y: auto;
+      word-break: break-word;
+      display: none;
+    }
+    #response.visible { display: block; }
+
+    /* ── Right panel: GPU canvas ────────────────────────────── */
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
     #canvas {
       display: block;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
     }
 
-    /* Error overlay — hidden by default, made visible via JS */
+    /* Error overlay */
     #error {
       display: none;
-      position: fixed;
+      position: absolute;
       inset: 0;
       background: #000;
     }
-    #error.visible {
-      display: grid;
-      place-items: center;
-    }
+    #error.visible { display: grid; place-items: center; }
     #error-box {
-      max-width: 500px;
+      max-width: 460px;
       padding: 2rem 2.5rem;
       border: 1px solid #ff4455;
       border-radius: 6px;
@@ -49,47 +155,53 @@
       padding: 0.1em 0.4em;
       border-radius: 3px;
     }
-
-    /* Minimal HUD — top-left, non-interactive */
-    #hud {
-      position: fixed;
-      top: 14px;
-      left: 16px;
-      color: #00ff55;
-      font-family: 'Courier New', monospace;
-      font-size: 11px;
-      letter-spacing: 0.07em;
-      line-height: 1.8;
-      opacity: 0.5;
-      pointer-events: none;
-      user-select: none;
-    }
   </style>
 </head>
 <body>
 
-  <!-- WebGPU draws directly into this canvas -->
-  <canvas id="canvas"></canvas>
+  <!-- Left panel: HUD + shape input -->
+  <div id="panel">
+    <div id="hud">
+      <div class="label">system</div>
+      <div>TOFU &nbsp;·&nbsp; WebGPU &nbsp;·&nbsp; 2D</div>
 
-  <!-- Shown only when WebGPU is not available -->
-  <div id="error" role="alert">
-    <div id="error-box">
-      &#9888; WebGPU not available<br><br>
-      <span id="error-msg"></span><br><br>
-      Requires Chrome 113+, Edge 113+, or Safari 18+ on a supported OS.<br>
-      In Chrome you can enable the flag at
-      <code>chrome://flags/#enable-unsafe-webgpu</code>.
+      <div class="label">atoms</div>
+      <div>100 000</div>
+
+      <div class="label">render</div>
+      <div><span id="fps">-- fps</span></div>
+
+      <div class="label">shape</div>
+      <div><span id="status">init</span></div>
+
+      <div class="label">phase</div>
+      <div><span id="phase">--</span></div>
+    </div>
+
+    <div id="panel-divider"></div>
+
+    <div id="input-area">
+      <div id="input-label">shape</div>
+      <textarea id="prompt-box" rows="2"></textarea>
+      <button id="send-btn">RUN</button>
+      <div id="response"></div>
     </div>
   </div>
 
-  <!-- Stats overlay -->
-  <div id="hud">
-    TOFU &nbsp;&middot;&nbsp; 5000 ATOMS &nbsp;&middot;&nbsp; 1D UNIVERSE &nbsp;&middot;&nbsp; WebGPU<br>
-    <span id="fps">-- fps</span>
-    &nbsp;&middot;&nbsp;
-    <span id="status">wander</span>
+  <!-- Right panel: WebGPU renders directly here -->
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+
+    <div id="error" role="alert">
+      <div id="error-box">
+        &#9888; WebGPU not available<br><br>
+        <span id="error-msg"></span><br><br>
+        Requires Chrome 113+, Edge 113+, or Safari 18+.<br>
+        Enable via <code>chrome://flags/#enable-unsafe-webgpu</code>.
+      </div>
+    </div>
   </div>
 
-  <script type="module" src="/main.js"></script>
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>

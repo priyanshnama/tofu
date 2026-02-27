@@ -1,8 +1,9 @@
 # ===================================
-# Project Tofu - Git Ignore Rules
+# Project Tofu v2 — Git Ignore Rules
+# Pure WebGPU + Vite, no backend
 # ===================================
 
-# Sensitive Information (NEVER COMMIT!)
+# Sensitive Information
 # ===================================
 .env
 .env.local
@@ -14,33 +15,22 @@ secrets/
 credentials/
 api_keys.txt
 
-# Node.js
+# Node.js / Vite
 # ===================================
 node_modules/
 dist/
 .vite/
 *.tsbuildinfo
 
-# Python
+# Legacy Python env (kept to avoid accidental tracking)
 # ===================================
 venv/
 .venv/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-*.egg-info/
-.eggs/
-dist/
-build/
-*.dist-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 
-# Binary / Compiled Data Files
+# Binary / Generated Data
 # ===================================
-backend/*.bin
 public/*.bin
 *.bin
 

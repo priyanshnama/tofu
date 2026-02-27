@@ -1,6 +1,0 @@
-# tofu — additional Python dependencies
-# (PyTorch, POT, numpy, scipy, Pillow are already in the venv)
-
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
-websockets>=12.0
