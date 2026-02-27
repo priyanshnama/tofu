@@ -9,9 +9,11 @@
  *   [GPU] render pass      — density → fullscreen phosphor quad
  *
  * Pipeline at shape transition:
- *   [JS] text → resolveShape → getShape → sampleFromDensity → assignTargets
- *   [JS] write source + target buffers to GPU
- *   [JS] reset morph_t = 0, has_targets = 1
+ *   [JS]  text → resolveShape → getShape → goalGrid
+ *   [GPU] NCA (64 steps): goalGrid → organicDensity   ← Phase 3
+ *   [JS]  sampleFromDensity(organicDensity) → rawTargets
+ *   [JS]  assignTargets (OT) → assignedTargets
+ *   [JS]  write source + target buffers to GPU, reset morph_t
  *
  * No backend.  No LLM.  Everything runs in the browser GPU.
  */
@@ -20,6 +22,7 @@ import { initDevice }                    from './gpu/device.js';
 import { allocateBuffers, seedAtoms,
          N, DENSITY_BYTES }              from './gpu/buffers.js';
 import { buildPipelines, encodeFrame }   from './gpu/pipelines.js';
+import { buildNCA, runNCA }              from './gpu/nca.js';
 import { assignTargets }                 from './gpu/ot.js';
 import { getShape, resolveShape,
          sampleFromDensity, SHAPE_NAMES } from './shapes/registry.js';
@@ -31,8 +34,8 @@ import { initPanel, tickFPS,
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MORPH_DURATION  = 2.0;    // seconds: source → target travel
-const HOLD_DURATION   = 3.0;    // seconds: pause at target before auto-advance
-const AUTO_CYCLE      = [...SHAPE_NAMES];   // cycle through all shapes
+const HOLD_DURATION   = 3.5;    // seconds: pause at target before auto-advance
+const AUTO_CYCLE      = [...SHAPE_NAMES];
 
 // Pre-allocated zero buffer for density clear (no shader needed)
 const DENSITY_CLEAR = new Uint8Array(DENSITY_BYTES);
@@ -61,11 +64,9 @@ async function main() {
     const seedData = seedAtoms(device, buffers.atomBufs);
 
     // CPU-side position mirrors — used to compute OT assignments
-    // Layout: [x0, y0, x1, y1, …]  (N × 2 float32)
     const cpuSource = new Float32Array(N * 2);
     const cpuTarget = new Float32Array(N * 2);
 
-    // Initialise both from the seed (x,y from each atom's first two floats)
     for (let i = 0; i < N; i++) {
         cpuSource[i * 2    ] = cpuTarget[i * 2    ] = seedData[i * 4    ];
         cpuSource[i * 2 + 1] = cpuTarget[i * 2 + 1] = seedData[i * 4 + 1];
@@ -76,26 +77,22 @@ async function main() {
     // ── Pipelines ──────────────────────────────────────────────────────────────
     const pipelines = await buildPipelines(device, buffers, format);
 
+    // ── NCA ────────────────────────────────────────────────────────────────────
+    const nca = await buildNCA(device);
+
     // ── Sim params (uniform buffer) ────────────────────────────────────────────
     // [dt, time, has_targets, morph_t]
     const simData = new Float32Array(4);
 
     // ── Morph state ────────────────────────────────────────────────────────────
     const morph = { t: 0.0, hold: 0.0 };
-    let userControlled = false;
-    let shapeIdx       = -1;
+    let userControlled  = false;
+    let shapeIdx        = -1;
+    let transitioning   = false;   // true while NCA is running (prevents overlap)
 
     // ── Core transition primitive ──────────────────────────────────────────────
 
-    /**
-     * Transition all atoms from their current positions to a new set of targets.
-     * This is the single entry point for ALL shape transitions.
-     *
-     * @param {Float32Array} newTargets  N × 2 interleaved NDC positions (OT-assigned)
-     * @param {string}       label       Shown in HUD status row
-     */
     function goToPositions(newTargets, label) {
-        // Freeze current logical end state as the new source
         cpuSource.set(cpuTarget);
         cpuTarget.set(newTargets);
 
@@ -104,31 +101,50 @@ async function main() {
 
         morph.t    = 0.0;
         morph.hold = 0.0;
-        simData[2] = 1.0;   // has_targets → morph mode
-        simData[3] = 0.0;   // morph_t
+        simData[2] = 1.0;
+        simData[3] = 0.0;
 
         setStatus(label);
     }
 
     /**
-     * Resolve a shape name, sample N target positions from its density grid,
-     * compute OT assignment from current positions, and trigger a morph.
+     * Resolve a shape name, run NCA on GPU to grow an organic density field,
+     * sample N targets, compute OT assignment, then trigger a morph.
      *
-     * @param {string} name  Any registered name or alias
+     * Async because NCA requires a GPU→CPU readback (mapAsync).
+     * The `transitioning` flag prevents concurrent calls.
      */
-    function goToShape(name) {
-        const canonical = resolveShape(name);
-        const grid      = getShape(canonical);
-        const rawTgt    = sampleFromDensity(grid);
-        const assigned  = assignTargets(cpuSource, rawTgt, N);
-        goToPositions(assigned, canonical);
-        return canonical;
+    async function goToShape(name) {
+        if (transitioning) return null;
+        transitioning = true;
+
+        try {
+            const canonical = resolveShape(name);
+
+            // ── Phase 2: parametric blueprint (CPU) ──────────────────────────
+            const goalGrid = getShape(canonical);
+
+            // ── Phase 3: NCA growth (GPU, 64 steps) ─────────────────────────
+            setPhase('nca · growing');
+            const organicDensity = await runNCA(device, nca, goalGrid);
+
+            // ── Sampling + OT ────────────────────────────────────────────────
+            setPhase('ot · assigning');
+            const rawTgt   = sampleFromDensity(organicDensity);
+            const assigned = assignTargets(cpuSource, rawTgt, N);
+
+            goToPositions(assigned, canonical);
+            return canonical;
+
+        } finally {
+            transitioning = false;
+        }
     }
 
-    /** Auto-cycle helper — advances to the next shape in the cycle sequence. */
+    /** Auto-cycle helper. */
     function advanceCycle() {
         shapeIdx = (shapeIdx + 1) % AUTO_CYCLE.length;
-        goToShape(AUTO_CYCLE[shapeIdx]);
+        goToShape(AUTO_CYCLE[shapeIdx]);   // fire-and-forget (async)
     }
 
     // Start immediately with the first shape
@@ -136,10 +152,12 @@ async function main() {
 
     // ── UI panel ───────────────────────────────────────────────────────────────
     initPanel({
-        onSubmit(text) {
-            const name = goToShape(text);
-            userControlled = true;
-            showResponse(name);
+        async onSubmit(text) {
+            const name = await goToShape(text);
+            if (name !== null) {
+                userControlled = true;
+                showResponse(name);
+            }
         },
         onClear() {
             userControlled = false;
@@ -170,7 +188,8 @@ async function main() {
                 morph.hold += dt;
                 setPhase(`hold ${morph.hold.toFixed(1)}s`);
 
-                if (!userControlled && morph.hold >= HOLD_DURATION) {
+                // Auto-advance only when idle (not user-controlled, not mid-NCA)
+                if (!userControlled && !transitioning && morph.hold >= HOLD_DURATION) {
                     advanceCycle();
                 }
             }
@@ -183,7 +202,6 @@ async function main() {
         device.queue.writeBuffer(buffers.simBuf, 0, simData);
 
         // ── Clear density buffer ────────────────────────────────────────────
-        // Done via writeBuffer (no PCIe issue: 256KB at 60 fps ≈ 15 MB/s)
         device.queue.writeBuffer(buffers.densityBuf, 0, DENSITY_CLEAR);
 
         // ── Encode + submit frame ───────────────────────────────────────────

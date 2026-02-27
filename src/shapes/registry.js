@@ -1,53 +1,98 @@
 /**
  * registry.js — Shape name → density grid, and density → atom positions.
  *
- * Two responsibilities:
- *
- *   1. Shape registry: maps string names (+ aliases) to generator functions.
- *      Grids are cached after first generation so repeated calls are instant.
- *
- *   2. sampleFromDensity(): importance-sample N NDC positions from a 128×128
- *      density grid.  Used once per shape transition to produce raw target
- *      positions before the OT assignment step.
+ * Rule: every entry in REGISTRY produces a VISUALLY DISTINCT density grid.
+ *       ALIASES are reserved for true synonyms only (same concept, different word).
  */
 
 import {
     circle, ring, star, diamond, spiral, heart, wave, hexGrid,
+    triangle, cross,
     GRID_SIZE,
 } from './primitives.js';
+
+import {
+    lissajous, lorenz, interference, julia, dragon, rabbit,
+    rossler, rose, logSpiral, mandelbrot,
+} from './mathematical.js';
+
+import {
+    dna, nanotube, crystal, graphene2D,
+} from './molecular.js';
 
 import { N } from '../gpu/buffers.js';
 
 // ── Shape registry ────────────────────────────────────────────────────────────
+// Each key → unique visual.  No two entries share a generator + params combo.
 
 const REGISTRY = {
-    circle:   () => circle(),
-    ring:     () => ring(),
-    star:     () => star(5),
-    star6:    () => star(6),
-    diamond:  () => diamond(),
-    spiral:   () => spiral(),
-    heart:    () => heart(),
-    wave:     () => wave(),
-    hexgrid:  () => hexGrid(),
-    graphene: () => hexGrid(),
+    // ── Tier 1: geometric primitives ──────────────────────────────────────────
+    circle:       () => circle(),
+    ring:         () => ring(),
+    star:         () => star(5),
+    star6:        () => star(6),
+    star8:        () => star(8),
+    diamond:      () => diamond(),
+    triangle:     () => triangle(),
+    cross:        () => cross(),
+    spiral:       () => spiral(),
+    heart:        () => heart(),
+    wave:         () => wave(),
+    hexgrid:      () => hexGrid(),
+
+    // ── Tier 2: mathematical ──────────────────────────────────────────────────
+    lissajous:    () => lissajous(3, 2, Math.PI / 4),   // pretzel
+    pretzel:      () => lissajous(5, 4, Math.PI / 6),   // denser pretzel
+    trefoil:      () => lissajous(3, 1, Math.PI / 2),   // 3-lobed curve
+    rose:         () => rose(4),                         // 8-petal rose
+    rose3:        () => rose(3),                         // 6-petal rose
+    lorenz:       () => lorenz(),                        // double-wing butterfly
+    rossler:      () => rossler(),                       // single-scroll spiral
+    interference: () => interference(),                  // wave fringes
+    galaxy:       () => logSpiral(),                     // logarithmic spiral arms
+    julia:        () => julia(-0.7, 0.27),               // dendrite / lightning
+    dragon:       () => dragon(),                        // archipelago islands
+    rabbit:       () => rabbit(),                        // Douady's 3-lobed rabbit
+    mandelbrot:   () => mandelbrot(),                    // classic cardioid
+
+    // ── Tier 3: molecular / structural ────────────────────────────────────────
+    dna:          () => dna(),
+    nanotube:     () => nanotube(),
+    crystal:      () => crystal(),
+    graphene:     () => graphene2D(),
 };
 
+// ── True synonyms only — different word, identical visual ─────────────────────
 const ALIASES = {
-    disc:       'circle',
-    donut:      'ring',
-    annulus:    'ring',
-    'star5':    'star',
-    pentagon:   'star',
-    hex:        'hexgrid',
-    nanotube:   'hexgrid',
-    graphene:   'hexgrid',
-    lattice:    'hexgrid',
-    helix:      'spiral',
-    galaxy:     'spiral',
-    love:       'heart',
-    sine:       'wave',
-    sinewave:   'wave',
+    // geometric
+    disc:           'circle',
+    donut:          'ring',
+    annulus:        'ring',
+    square:         'diamond',   // close enough visually
+    plus:           'cross',
+    hex:            'hexgrid',
+
+    // mathematical
+    butterfly:      'lorenz',
+    attractor:      'lorenz',
+    chaos:          'rossler',
+    scroll:         'rossler',
+    fringes:        'interference',
+    diffraction:    'interference',
+    waves:          'interference',
+    fractal:        'julia',
+    lightning:      'julia',
+
+    // molecular
+    doublehelix:    'dna',
+    dnahelix:       'dna',
+    tube:           'nanotube',
+    cnt:            'nanotube',
+    carbon:         'nanotube',
+    cubic:          'crystal',
+    bcc:            'crystal',
+    lattice:        'crystal',
+    carbongrid:     'graphene',
 };
 
 /** All registered shape names (canonical, no aliases). */
@@ -58,8 +103,6 @@ const _cache = new Map();
 
 /**
  * Return the density grid for the given name.
- * Throws if the name (after alias resolution) is unknown.
- *
  * @param {string} name
  * @returns {Float32Array}  GRID_SIZE × GRID_SIZE, values in [0, 1]
  */
@@ -74,19 +117,18 @@ export function getShape(name) {
 
 /**
  * Resolve a user-typed string to a canonical registry key.
- * Falls back to 'circle' if not found.
+ * Falls back to 'circle' if nothing matches.
  */
 export function resolveShape(input) {
     const k = input.toLowerCase().trim().replace(/\s+/g, '');
-    if (REGISTRY[k])         return k;
-    if (ALIASES[k])          return ALIASES[k];
-    // Partial match: first registry key that starts with k
+    if (REGISTRY[k])  return k;
+    if (ALIASES[k])   return ALIASES[k];
     const partial = SHAPE_NAMES.find(n => n.startsWith(k));
     return partial ?? 'circle';
 }
 
 function _resolve(name) {
-    const k = name.toLowerCase().trim();
+    const k = name.toLowerCase().trim().replace(/\s+/g, '');
     if (REGISTRY[k]) return k;
     if (ALIASES[k])  return ALIASES[k];
     return 'circle';
@@ -98,15 +140,6 @@ function _resolve(name) {
 /**
  * Importance-sample N NDC positions from a density grid.
  *
- * Algorithm:
- *   1. Build a cumulative distribution function (CDF) from the flat grid.
- *   2. For each of N samples: draw a uniform random number, binary-search the CDF,
- *      map the winning cell to an NDC position with sub-cell jitter.
- *
- * Coordinate convention (matches splat.wgsl):
- *   grid row 0 → NDC y = -1 (bottom)
- *   grid col 0 → NDC x = -1 (left)
- *
  * @param {Float32Array} densityGrid   GRID_SIZE × GRID_SIZE, values ≥ 0
  * @returns {Float32Array}             N × 2 interleaved NDC positions
  */
@@ -114,12 +147,10 @@ export function sampleFromDensity(densityGrid) {
     const W = GRID_SIZE;
     const H = GRID_SIZE;
 
-    // Build normalised CDF
     let total = 0;
     for (let i = 0; i < densityGrid.length; i++) total += densityGrid[i];
 
     if (total === 0) {
-        // Degenerate grid — uniform scatter fallback
         const out = new Float32Array(N * 2);
         for (let i = 0; i < N; i++) {
             out[i * 2    ] = (Math.random() * 2 - 1) * 0.85;
@@ -137,7 +168,6 @@ export function sampleFromDensity(densityGrid) {
 
     const out = new Float32Array(N * 2);
     for (let i = 0; i < N; i++) {
-        // Binary search for a random CDF value
         let lo = 0, hi = cdf.length - 1;
         const r = Math.random();
         while (lo < hi) {
@@ -145,13 +175,10 @@ export function sampleFromDensity(densityGrid) {
             if (cdf[mid] < r) lo = mid + 1;
             else              hi = mid;
         }
-
         const row = Math.floor(lo / W);
         const col = lo % W;
-
-        // Sub-cell jitter so atoms don't pile on grid centres
-        out[i * 2    ] = ((col + Math.random()) / W) * 2 - 1;   // NDC x
-        out[i * 2 + 1] = ((row + Math.random()) / H) * 2 - 1;   // NDC y (row 0 = bottom)
+        out[i * 2    ] = ((col + Math.random()) / W) * 2 - 1;
+        out[i * 2 + 1] = ((row + Math.random()) / H) * 2 - 1;
     }
     return out;
 }

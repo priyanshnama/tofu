@@ -25,7 +25,7 @@ export const GRID_SIZE = 128;
  * @param {number}       sigma  standard deviation in pixels
  * @returns {Float32Array}       blurred, normalised to [0, 1]
  */
-function gaussianBlur(src, W, H, sigma) {
+export function gaussianBlur(src, W, H, sigma) {
     const radius = Math.ceil(sigma * 3);
     const kernel = [];
     let ks = 0;
@@ -187,6 +187,49 @@ export function wave(freq = 2.5, amp = 0.45, thickness = 0.10) {
             const { x, y } = toNDC(col, row, G, G);
             const waveY = amp * Math.sin(freq * Math.PI * x);
             raw[row * G + col] = Math.abs(y - waveY) < thickness ? 1 : 0;
+        }
+    }
+    return gaussianBlur(raw, G, G, 1.5);
+}
+
+/** Equilateral triangle. */
+export function triangle(r = 0.78) {
+    const G   = GRID_SIZE;
+    const raw = new Float32Array(G * G);
+    // Three edge normals of an equilateral triangle pointing up
+    const verts = [0, 1, 2].map(i => {
+        const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3;
+        return [Math.cos(a) * r, Math.sin(a) * r];
+    });
+    for (let row = 0; row < G; row++) {
+        for (let col = 0; col < G; col++) {
+            const { x, y } = toNDC(col, row, G, G);
+            // Inside triangle iff on the correct side of all three edges
+            let inside = true;
+            for (let i = 0; i < 3; i++) {
+                const [ax, ay] = verts[i];
+                const [bx, by] = verts[(i + 1) % 3];
+                if ((bx - ax) * (y - ay) - (by - ay) * (x - ax) < 0) {
+                    inside = false; break;
+                }
+            }
+            raw[row * G + col] = inside ? 1 : 0;
+        }
+    }
+    return gaussianBlur(raw, G, G, 1.5);
+}
+
+/** Plus / cross shape. */
+export function cross(arm = 0.72, width = 0.22) {
+    const G   = GRID_SIZE;
+    const raw = new Float32Array(G * G);
+    const h   = width / 2;
+    for (let row = 0; row < G; row++) {
+        for (let col = 0; col < G; col++) {
+            const { x, y } = toNDC(col, row, G, G);
+            const horiz = Math.abs(x) < arm && Math.abs(y) < h;
+            const vert  = Math.abs(y) < arm && Math.abs(x) < h;
+            raw[row * G + col] = horiz || vert ? 1 : 0;
         }
     }
     return gaussianBlur(raw, G, G, 1.5);
