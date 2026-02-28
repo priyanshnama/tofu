@@ -3,7 +3,7 @@
 > *Less like using a computer, more like conversing with a fluid intelligence.*
 
 A living UI made of 100,000 green particles. Type a shape name — the particles
-reorganise themselves into it. No frameworks, no backend, no LLM. Pure WebGPU.
+reorganise themselves into it. No frameworks, no backend, no LLM. Pure WebGPU
 
 ![tofu demo](https://user-images.githubusercontent.com/placeholder/tofu-demo.gif)
 
