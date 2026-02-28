@@ -11,7 +11,7 @@
  */
 
 const K     : u32 = 512u;
-const SCALE : f32 = 16384.0;
+const SCALE : f32 = 1024.0;   // must match kmeans_update.wgsl
 
 // Declared as non-atomic for reading — safe because the update pass has
 // fully completed (separate command encoder submission) before this runs.

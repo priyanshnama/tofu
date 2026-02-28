@@ -38,7 +38,7 @@ struct SimParams {
 @group(0) @binding(4) var<storage, read>       source_buf : array<vec2<f32>>;
 
 const MAX_VEL : f32 = 0.55;
-const N       : u32 = 100000u;
+const N       : u32 = 1500000u;
 const BOUND   : f32 = 0.92;
 
 @compute @workgroup_size(256)

@@ -5,7 +5,7 @@
  * Dispatched as ceil(N/256) workgroups of size 256.
  */
 
-const N : u32 = 100000u;
+const N : u32 = 1500000u;
 const K : u32 = 512u;
 
 @group(0) @binding(0) var<storage, read>       pos       : array<f32>;  // N×2 (x,y interleaved)

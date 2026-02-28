@@ -14,8 +14,8 @@
  *   1  trail_buf   — storage read_write  (f32, persistent decayed glow)
  */
 
-const DENSITY_W : u32 = 256u;
-const DENSITY_H : u32 = 256u;
+const DENSITY_W : u32 = 2560u;
+const DENSITY_H : u32 = 1440u;
 const DECAY     : f32 = 0.88;
 
 @group(0) @binding(0) var<storage, read>       density_buf : array<u32>;

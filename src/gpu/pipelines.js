@@ -140,8 +140,8 @@ export async function buildPipelines(device, buffers, format) {
  * @param {GPUTextureView}    view       — current swap-chain texture view
  * @param {number}            slot       — frame & 1  (ping-pong selector)
  */
-// 256×256 = 65536 texels / 256 threads per workgroup = 256 workgroups
-const DECAY_DISPATCH = 256;
+// 2560×1440 = 3686400 texels / 256 threads per workgroup = 14400 workgroups
+const DECAY_DISPATCH = 14400;
 
 export function encodeFrame(enc, pipelines, view, slot) {
     const { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,

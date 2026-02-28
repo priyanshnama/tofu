@@ -51,8 +51,9 @@ async function main() {
     const canvasWrap = document.getElementById('canvas-wrap');
 
     function resizeCanvas() {
-        canvas.width  = canvasWrap.clientWidth;
-        canvas.height = canvasWrap.clientHeight;
+        const dpr     = window.devicePixelRatio || 1;
+        canvas.width  = canvasWrap.clientWidth  * dpr;
+        canvas.height = canvasWrap.clientHeight * dpr;
     }
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);

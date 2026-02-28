@@ -30,7 +30,7 @@ import divideCode from '../../wgsl/kmeans_divide.wgsl?raw';
 
 const K       = 512;      // centroids per cloud
 const K_ITERS = 6;        // k-means iterations (converges well in 6)
-export const OT_N = 100_000;
+export const OT_N = 1_500_000;
 
 const K_F32_BYTES = K * 2 * 4;       // K centroids × 2 floats × 4 B  =   4 096
 const K_I32_BYTES = K * 4;           // K × i32                        =   2 048

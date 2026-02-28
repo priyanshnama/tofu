@@ -26,9 +26,9 @@ struct Atom {
 @group(0) @binding(1) var<storage, read_write> density_buf : array<atomic<u32>>;
 @group(0) @binding(2) var<storage, read_write> vel_buf     : array<atomic<u32>>;
 
-const DENSITY_W : u32 = 256u;
-const DENSITY_H : u32 = 256u;
-const N         : u32 = 100000u;
+const DENSITY_W : u32 = 2560u;
+const DENSITY_H : u32 = 1440u;
+const N         : u32 = 1500000u;
 
 @compute @workgroup_size(256)
 fn cs_splat(@builtin(global_invocation_id) gid : vec3<u32>) {

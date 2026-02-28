@@ -26,8 +26,8 @@
 @group(0) @binding(1) var<storage, read> vel_buf     : array<u32>;
 @group(0) @binding(2) var<storage, read> density_buf : array<u32>;
 
-const DENSITY_W : u32 = 256u;
-const DENSITY_H : u32 = 256u;
+const DENSITY_W : u32 = 2560u;
+const DENSITY_H : u32 = 1440u;
 
 // ── Vertex ─────────────────────────────────────────────────────────────────
 
