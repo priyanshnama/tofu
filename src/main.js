@@ -12,7 +12,7 @@
  *   [JS]  text → resolveShape → getShape → goalGrid
  *   [GPU] NCA (64 steps): goalGrid → organicDensity   ← Phase 3
  *   [JS]  sampleFromDensity(organicDensity) → rawTargets
- *   [JS]  assignTargets (OT) → assignedTargets
+ *   [GPU] k-means (K=512, 6 iters) × 2 clouds + CPU centroid OT → assignedTargets
  *   [JS]  write source + target buffers to GPU, reset morph_t
  *
  * No backend.  No LLM.  Everything runs in the browser GPU.
@@ -20,10 +20,10 @@
 
 import { initDevice }                    from './gpu/device.js';
 import { allocateBuffers, seedAtoms,
-         N, DENSITY_BYTES }              from './gpu/buffers.js';
+         N, DENSITY_BYTES, VEL_BYTES }  from './gpu/buffers.js';
 import { buildPipelines, encodeFrame }   from './gpu/pipelines.js';
 import { buildNCA, runNCA }              from './gpu/nca.js';
-import { assignTargets }                 from './gpu/ot.js';
+import { buildOTGpu, assignTargetsGpu }  from './gpu/ot_gpu.js';
 import { getShape, resolveShape,
          sampleFromDensity, SHAPE_NAMES } from './shapes/registry.js';
 import { initPanel, tickFPS,
@@ -37,8 +37,9 @@ const MORPH_DURATION  = 2.0;    // seconds: source → target travel
 const HOLD_DURATION   = 3.5;    // seconds: pause at target before auto-advance
 const AUTO_CYCLE      = [...SHAPE_NAMES];
 
-// Pre-allocated zero buffer for density clear (no shader needed)
+// Pre-allocated zero buffers for per-frame clears
 const DENSITY_CLEAR = new Uint8Array(DENSITY_BYTES);
+const VEL_CLEAR     = new Uint8Array(VEL_BYTES);
 
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -79,6 +80,9 @@ async function main() {
 
     // ── NCA ────────────────────────────────────────────────────────────────────
     const nca = await buildNCA(device);
+
+    // ── GPU OT ─────────────────────────────────────────────────────────────────
+    const ot = await buildOTGpu(device);
 
     // ── Sim params (uniform buffer) ────────────────────────────────────────────
     // [dt, time, has_targets, morph_t]
@@ -128,10 +132,10 @@ async function main() {
             setPhase('nca · growing');
             const organicDensity = await runNCA(device, nca, goalGrid);
 
-            // ── Sampling + OT ────────────────────────────────────────────────
-            setPhase('ot · assigning');
+            // ── Sampling + GPU OT ────────────────────────────────────────────
+            setPhase('ot · k-means');
             const rawTgt   = sampleFromDensity(organicDensity);
-            const assigned = assignTargets(cpuSource, rawTgt, N);
+            const assigned = await assignTargetsGpu(device, ot, cpuSource, rawTgt);
 
             goToPositions(assigned, canonical);
             return canonical;
@@ -201,8 +205,9 @@ async function main() {
         simData[1] = totalSec;
         device.queue.writeBuffer(buffers.simBuf, 0, simData);
 
-        // ── Clear density buffer ────────────────────────────────────────────
+        // ── Clear density + velocity buffers ────────────────────────────────
         device.queue.writeBuffer(buffers.densityBuf, 0, DENSITY_CLEAR);
+        device.queue.writeBuffer(buffers.velBuf,     0, VEL_CLEAR);
 
         // ── Encode + submit frame ───────────────────────────────────────────
         const slot = frame & 1;

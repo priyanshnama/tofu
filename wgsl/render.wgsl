@@ -7,18 +7,24 @@
  *   This matches the splat shader's coordinate mapping exactly.
  *
  * Fragment stage:
- *   Reads from the density_buf (u32 counts), applies a 3×3 box filter for
- *   smooth appearance, maps count → brightness via log tone curve, outputs
- *   a green-phosphor colour ramp:
- *     dim  → dark forest green
- *     mid  → bright green
- *     peak → near-white with green tint
+ *   Reads from three buffers:
+ *     trail_buf   (f32) — decayed persistent glow (phosphor afterglow)
+ *     vel_buf     (u32) — current-frame accumulated speed (fixed-point)
+ *     density_buf (u32) — current-frame atom counts (speed denominator)
+ *
+ *   Applies a 3×3 box filter for smooth appearance.
+ *   Maps trail → brightness via log tone curve.
+ *   Outputs green-phosphor colour ramp shifted white-hot for fast atoms.
  *
  * Bindings (group 0):
- *   0  density_buf — storage read  (u32 counts, same buffer written by splat)
+ *   0  trail_buf   — storage read  (f32, persistent decayed glow)
+ *   1  vel_buf     — storage read  (u32, current frame speed accumulator)
+ *   2  density_buf — storage read  (u32, current frame atom counts)
  */
 
-@group(0) @binding(0) var<storage, read> density_buf : array<u32>;
+@group(0) @binding(0) var<storage, read> trail_buf   : array<f32>;
+@group(0) @binding(1) var<storage, read> vel_buf     : array<u32>;
+@group(0) @binding(2) var<storage, read> density_buf : array<u32>;
 
 const DENSITY_W : u32 = 256u;
 const DENSITY_H : u32 = 256u;
@@ -49,6 +55,18 @@ fn vs_main(@builtin(vertex_index) vi : u32) -> VSOut {
 
 // ── Fragment helpers ───────────────────────────────────────────────────────
 
+fn read_trail(ix : i32, iy : i32) -> f32 {
+    let cx = clamp(ix, 0, i32(DENSITY_W) - 1);
+    let cy = clamp(iy, 0, i32(DENSITY_H) - 1);
+    return trail_buf[u32(cy) * DENSITY_W + u32(cx)];
+}
+
+fn read_vel(ix : i32, iy : i32) -> f32 {
+    let cx = clamp(ix, 0, i32(DENSITY_W) - 1);
+    let cy = clamp(iy, 0, i32(DENSITY_H) - 1);
+    return f32(vel_buf[u32(cy) * DENSITY_W + u32(cx)]);
+}
+
 fn read_density(ix : i32, iy : i32) -> f32 {
     let cx = clamp(ix, 0, i32(DENSITY_W) - 1);
     let cy = clamp(iy, 0, i32(DENSITY_H) - 1);
@@ -62,26 +80,39 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     let ix = i32(in.uv.x * f32(DENSITY_W));
     let iy = i32(in.uv.y * f32(DENSITY_H));
 
-    // 3×3 box filter — smooths out the hard per-texel steps
-    var sum = 0.0;
+    // 3×3 box filter on all three buffers
+    var t_sum = 0.0;
+    var v_sum = 0.0;
+    var d_sum = 0.0;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
-            sum += read_density(ix + dx, iy + dy);
+            t_sum += read_trail(ix + dx, iy + dy);
+            v_sum += read_vel(ix + dx, iy + dy);
+            d_sum += read_density(ix + dx, iy + dy);
         }
     }
-    let avg = sum / 9.0;
+    let avg_t = t_sum / 9.0;   // persistent trail — drives brightness
+    let avg_v = v_sum / 9.0;   // current-frame speed accumulator
+    let avg_d = d_sum / 9.0;   // current-frame atom count — speed denominator
 
-    // Logarithmic tone mapping — compresses bright clusters, lifts dim halos
-    // log(1 + avg) / log(1 + ref) where ref ≈ expected peak density
-    let norm = clamp(log(1.0 + avg) / log(1.0 + 12.0), 0.0, 1.0);
+    // Logarithmic tone mapping from persistent trail
+    let norm = clamp(log(1.0 + avg_t) / log(1.0 + 12.0), 0.0, 1.0);
 
-    // Green-phosphor colour ramp
-    //   norm = 0.0 → pure black
-    //   norm = 0.5 → rich green
-    //   norm = 1.0 → near-white (saturated phosphor glow)
-    let r = norm * norm * 0.18;
-    let g = 0.35 * norm + 0.65 * norm * norm;
-    let b = norm * norm * 0.10;
+    // Average normalised speed [0, 1] from current frame only
+    // avg_v is accumulated speed (0..65535 per atom) / avg_d atoms
+    let speed = select(0.0, clamp(avg_v / (avg_d * 65535.0), 0.0, 1.0), avg_d > 0.0);
+
+    // Green-phosphor base colour
+    let r_base = norm * norm * 0.18;
+    let g_base = 0.35 * norm + 0.65 * norm * norm;
+    let b_base = norm * norm * 0.10;
+
+    // White hot at high speed — fast atoms glow bright white/cyan
+    // mix towards vec3(norm) which is neutral white at the same brightness
+    let blend = speed * 0.85;
+    let r = mix(r_base, norm * 0.90, blend);
+    let g = mix(g_base, norm,        blend);
+    let b = mix(b_base, norm * 0.95, blend);
 
     return vec4<f32>(r, g, b, 1.0);
 }

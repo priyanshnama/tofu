@@ -15,6 +15,7 @@
 
 import physicsCode from '../../wgsl/physics.wgsl?raw';
 import splatCode   from '../../wgsl/splat.wgsl?raw';
+import decayCode   from '../../wgsl/decay.wgsl?raw';
 import renderCode  from '../../wgsl/render.wgsl?raw';
 
 import { DISPATCH } from './buffers.js';
@@ -33,15 +34,16 @@ import { DISPATCH } from './buffers.js';
  * }>}
  */
 export async function buildPipelines(device, buffers, format) {
-    const { atomBufs, sourceBuf, targetBuf, simBuf, densityBuf } = buffers;
+    const { atomBufs, sourceBuf, targetBuf, simBuf, densityBuf, velBuf, trailBuf } = buffers;
 
     // ── Shader modules ──────────────────────────────────────────────────────
     const physicsMod = device.createShaderModule({ label: 'physics', code: physicsCode });
     const splatMod   = device.createShaderModule({ label: 'splat',   code: splatCode   });
+    const decayMod   = device.createShaderModule({ label: 'decay',   code: decayCode   });
     const renderMod  = device.createShaderModule({ label: 'render',  code: renderCode  });
 
     // Log any shader compilation errors
-    for (const [name, mod] of [['physics', physicsMod], ['splat', splatMod], ['render', renderMod]]) {
+    for (const [name, mod] of [['physics', physicsMod], ['splat', splatMod], ['decay', decayMod], ['render', renderMod]]) {
         const info = await mod.getCompilationInfo();
         for (const m of info.messages) {
             if (m.type === 'error') console.error(`[${name}] L${m.lineNum}: ${m.message}`);
@@ -50,7 +52,7 @@ export async function buildPipelines(device, buffers, format) {
     }
 
     // ── Compute pipelines ──────────────────────────────────────────────────
-    const [physicsPipeline, splatPipeline] = await Promise.all([
+    const [physicsPipeline, splatPipeline, decayPipeline] = await Promise.all([
         device.createComputePipelineAsync({
             label:   'physics',
             layout:  'auto',
@@ -60,6 +62,11 @@ export async function buildPipelines(device, buffers, format) {
             label:   'splat',
             layout:  'auto',
             compute: { module: splatMod, entryPoint: 'cs_splat' },
+        }),
+        device.createComputePipelineAsync({
+            label:   'decay',
+            layout:  'auto',
+            compute: { module: decayMod, entryPoint: 'cs_decay' },
         }),
     ]);
 
@@ -75,6 +82,7 @@ export async function buildPipelines(device, buffers, format) {
     // ── Bind groups ────────────────────────────────────────────────────────
     const physBGL   = physicsPipeline.getBindGroupLayout(0);
     const splatBGL  = splatPipeline.getBindGroupLayout(0);
+    const decayBGL  = decayPipeline.getBindGroupLayout(0);
     const renderBGL = renderPipeline.getBindGroupLayout(0);
 
     const buf = (b) => ({ buffer: b });
@@ -102,18 +110,34 @@ export async function buildPipelines(device, buffers, format) {
             entries: [
                 { binding: 0, resource: buf(atomBufs[1 - slot]) },  // physics wrote here
                 { binding: 1, resource: buf(densityBuf)          },
+                { binding: 2, resource: buf(velBuf)              },  // velocity accumulator
             ],
         })
     );
 
-    // Render — fixed (always the same density buffer)
+    // Decay — reads density (current frame), writes trail (persistent)
+    const decayBG = device.createBindGroup({
+        label:  'decay-bg',
+        layout: decayBGL,
+        entries: [
+            { binding: 0, resource: buf(densityBuf) },
+            { binding: 1, resource: buf(trailBuf)   },
+        ],
+    });
+
+    // Render — trail (brightness) + vel (speed tint) + density (speed denominator)
     const renderBG = device.createBindGroup({
         label:  'render-bg',
         layout: renderBGL,
-        entries: [{ binding: 0, resource: buf(densityBuf) }],
+        entries: [
+            { binding: 0, resource: buf(trailBuf)   },
+            { binding: 1, resource: buf(velBuf)      },
+            { binding: 2, resource: buf(densityBuf)  },
+        ],
     });
 
-    return { physicsPipeline, splatPipeline, renderPipeline, physicsBGs, splatBGs, renderBG };
+    return { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,
+             physicsBGs, splatBGs, decayBG, renderBG };
 }
 
 /**
@@ -127,9 +151,12 @@ export async function buildPipelines(device, buffers, format) {
  * @param {GPUTextureView}    view       — current swap-chain texture view
  * @param {number}            slot       — frame & 1  (ping-pong selector)
  */
+// 256×256 = 65536 texels / 256 threads per workgroup = 256 workgroups
+const DECAY_DISPATCH = 256;
+
 export function encodeFrame(enc, pipelines, view, slot) {
-    const { physicsPipeline, splatPipeline, renderPipeline,
-            physicsBGs, splatBGs, renderBG } = pipelines;
+    const { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,
+            physicsBGs, splatBGs, decayBG, renderBG } = pipelines;
 
     // Physics
     const cp = enc.beginComputePass({ label: 'physics' });
@@ -144,6 +171,13 @@ export function encodeFrame(enc, pipelines, view, slot) {
     sp.setBindGroup(0, splatBGs[slot]);
     sp.dispatchWorkgroups(DISPATCH);
     sp.end();
+
+    // Decay — density → trail (persistent phosphor glow)
+    const dp = enc.beginComputePass({ label: 'decay' });
+    dp.setPipeline(decayPipeline);
+    dp.setBindGroup(0, decayBG);
+    dp.dispatchWorkgroups(DECAY_DISPATCH);
+    dp.end();
 
     // Render
     const rp = enc.beginRenderPass({

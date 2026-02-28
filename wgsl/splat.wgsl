@@ -24,6 +24,7 @@ struct Atom {
 
 @group(0) @binding(0) var<storage, read>       atoms       : array<Atom>;
 @group(0) @binding(1) var<storage, read_write> density_buf : array<atomic<u32>>;
+@group(0) @binding(2) var<storage, read_write> vel_buf     : array<atomic<u32>>;
 
 const DENSITY_W : u32 = 256u;
 const DENSITY_H : u32 = 256u;
@@ -49,5 +50,11 @@ fn cs_splat(@builtin(global_invocation_id) gid : vec3<u32>) {
         f32(DENSITY_H - 1u)
     ));
 
-    atomicAdd(&density_buf[ty * DENSITY_W + tx], 1u);
+    let texel = ty * DENSITY_W + tx;
+    atomicAdd(&density_buf[texel], 1u);
+
+    // Accumulate speed as fixed-point u32 (MAX_VEL=0.55 → 65535)
+    let speed   = clamp(length(atoms[idx].vel) / 0.55, 0.0, 1.0);
+    let speed_u = u32(speed * 65535.0);
+    atomicAdd(&vel_buf[texel], speed_u);
 }

@@ -20,6 +20,8 @@ const OT_STRIDE     = 2 * 4;                            // 2 × f32 =  8 bytes
 export const ATOM_BYTES    = N * ATOM_STRIDE;           // 1 600 000
 export const OT_BYTES      = N * OT_STRIDE;             //   800 000
 export const DENSITY_BYTES = DENSITY_W * DENSITY_H * 4;//   262 144
+export const VEL_BYTES     = DENSITY_BYTES;             //   262 144  (same layout)
+export const TRAIL_BYTES   = DENSITY_BYTES;             //   262 144  (f32, persistent)
 
 // Dispatch counts (workgroup size 256)
 export const DISPATCH = Math.ceil(N / 256);             // 391
@@ -50,6 +52,8 @@ export function allocateBuffers(device) {
         targetBuf:               buf(OT_BYTES,      S,     'ot-target'),
         simBuf:                  buf(16,             U,     'sim-params'),
         densityBuf:              buf(DENSITY_BYTES,  S,     'density'),
+        velBuf:                  buf(VEL_BYTES,      S,     'velocity'),
+        trailBuf:                buf(TRAIL_BYTES,    S,     'trail'),
     };
 }
 
