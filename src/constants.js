@@ -6,7 +6,7 @@
  * replaces %%CONST_NAME%% placeholders at transform time.
  */
 
-export const N         = 500_000;   // atom count
+export const N         = 2_000_000; // atom count — sweet spot for solid 4K coverage at ~60fps
 export const DENSITY_W = 3840;      // density grid width  (pixels)
 export const DENSITY_H = 2160;      // density grid height (pixels)
 export const K         = 512;       // k-means centroids
