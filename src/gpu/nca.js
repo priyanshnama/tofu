@@ -1,15 +1,12 @@
 /**
  * nca.js — NCA pipeline: MLP mode (trained weights) or RDS fallback.
  *
- * On startup, buildNCA() tries to fetch /nca_weights.json:
+ *   • Weights present → MLP mode: 16-channel GoalNCA, architecture matches
+ *                       wgsl/nca_step_mlp.wgsl + training/train_nca.py exactly.
+ *                       Each shape grows organically from a zero state.
  *
- *   • Found  → MLP mode: 16-channel GoalNCA, architecture matches
- *              wgsl/nca_step_mlp.wgsl + training/train_nca.py exactly.
- *              Each shape grows organically from a zero state.
- *
- *   • Missing → RDS mode: single-channel reaction-diffusion (existing
- *              wgsl/nca_step.wgsl), adds organic texture to the parametric
- *              goal grid.  No training required.
+ *   • No weights      → RDS mode: single-channel reaction-diffusion,
+ *                       adds organic texture to the parametric goal grid.
  *
  * Both modes expose the same API:
  *   const nca = await buildNCA(device);
@@ -58,24 +55,39 @@ async function compilePipeline(device, code, entryPoint, label) {
 // ── Weight loading ────────────────────────────────────────────────────────────
 
 /**
- * Fetch /nca_weights.json (produced by training/train_nca.py).
- * Returns null if the file is not found or is malformed.
+ * Fetch /nca_weights.json from the Vite dev server (public/ directory).
+ * Returns null if missing or malformed, with explicit console logging.
  */
 async function fetchWeights() {
+    let resp;
     try {
-        const resp = await fetch('/nca_weights.json');
-        if (!resp.ok) return null;
-        const json = await resp.json();
-        if (!json.w1 || !json.b1 || !json.w2 || !json.b2) return null;
-        return {
-            w1: new Float32Array(json.w1.flat()),   // (NHD × NIN)
-            b1: new Float32Array(json.b1),          // (NHD,)
-            w2: new Float32Array(json.w2.flat()),   // (C × NHD)
-            b2: new Float32Array(json.b2),          // (C,)
-        };
-    } catch {
+        resp = await fetch('/nca_weights.json');
+    } catch (e) {
+        console.warn('[nca] fetch /nca_weights.json failed (network):', e);
         return null;
     }
+    if (!resp.ok) {
+        console.warn(`[nca] /nca_weights.json → HTTP ${resp.status}  (RDS fallback)`);
+        return null;
+    }
+    let json;
+    try {
+        json = await resp.json();
+    } catch (e) {
+        console.warn('[nca] /nca_weights.json is not valid JSON:', e);
+        return null;
+    }
+    if (!json.w1 || !json.b1 || !json.w2 || !json.b2) {
+        console.warn('[nca] /nca_weights.json missing keys:', Object.keys(json));
+        return null;
+    }
+    console.log(`[nca] weights loaded  w1:${json.w1.length}×${json.w1[0].length}  hidden:${json.hidden}`);
+    return {
+        w1: new Float32Array(json.w1.flat()),   // (NHD × NIN)
+        b1: new Float32Array(json.b1),          // (NHD,)
+        w2: new Float32Array(json.w2.flat()),   // (C × NHD)
+        b2: new Float32Array(json.b2),          // (C,)
+    };
 }
 
 // ── MLP mode ──────────────────────────────────────────────────────────────────
