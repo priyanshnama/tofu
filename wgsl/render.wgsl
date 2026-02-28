@@ -96,8 +96,9 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     let avg_v = v_sum / 9.0;   // current-frame speed accumulator
     let avg_d = d_sum / 9.0;   // current-frame atom count — speed denominator
 
-    // Logarithmic tone mapping from persistent trail
-    let norm = clamp(log(1.0 + avg_t) / log(1.0 + 12.0), 0.0, 1.0);
+    // Logarithmic tone mapping from persistent trail.
+    // Normalisation constant 20 gives headroom for bilinear-splat trail scale.
+    let norm = clamp(log(1.0 + avg_t) / log(1.0 + 20.0), 0.0, 1.0);
 
     // Average normalised speed [0, 1] from current frame only
     let speed = select(0.0, clamp(avg_v / (avg_d * 65535.0), 0.0, 1.0), avg_d > 0.0);
