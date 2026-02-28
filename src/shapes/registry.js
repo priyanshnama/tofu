@@ -7,7 +7,7 @@
 
 import {
     circle, ring, star, diamond, spiral, heart, wave, hexGrid,
-    triangle, cross,
+    triangle, cross, eiffelTower,
     GRID_SIZE,
 } from './primitives.js';
 
@@ -39,6 +39,7 @@ const REGISTRY = {
     heart:        () => heart(),
     wave:         () => wave(),
     hexgrid:      () => hexGrid(),
+    eiffeltower:  () => eiffelTower(),
 
     // ── Tier 2: mathematical ──────────────────────────────────────────────────
     lissajous:    () => lissajous(3, 2, Math.PI / 4),   // pretzel
@@ -71,6 +72,9 @@ const ALIASES = {
     square:         'diamond',   // close enough visually
     plus:           'cross',
     hex:            'hexgrid',
+    eiffel:         'eiffeltower',
+    tower:          'eiffeltower',
+    paris:          'eiffeltower',
 
     // mathematical
     butterfly:      'lorenz',

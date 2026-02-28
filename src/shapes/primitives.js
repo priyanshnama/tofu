@@ -235,6 +235,69 @@ export function cross(arm = 0.72, width = 0.22) {
     return gaussianBlur(raw, G, G, 1.5);
 }
 
+/**
+ * Eiffel Tower silhouette.
+ * Four curved legs with parabolic arch → first-floor platform → tapering body
+ * → second-floor platform → spire → thin antenna.
+ */
+export function eiffelTower() {
+    const G   = GRID_SIZE;
+    const raw = new Float32Array(G * G);
+
+    for (let row = 0; row < G; row++) {
+        for (let col = 0; col < G; col++) {
+            const x  = (col / (G - 1)) * 2 - 1;
+            const y  = (row / (G - 1)) * 2 - 1;
+            const ax = Math.abs(x);
+            let   v  = 0;
+
+            // ── Legs  (base → first floor) ────────────────────────────────
+            if (y >= -0.88 && y < -0.08) {
+                const t = (y + 0.88) / 0.80;          // 0 = base, 1 = first floor
+
+                // Outer profile: wide at base, power-curve to first floor
+                const xOuter = 0.52 * Math.pow(1 - t, 0.60) + 0.10;
+
+                // Inner arch: parabolic opening at base, closes at first floor
+                const xInner = 0.20 * (1 - t) * (1 - t * 0.5);
+
+                v = (ax >= xInner && ax <= xOuter) ? 1 : 0;
+            }
+
+            // ── First-floor platform ──────────────────────────────────────
+            else if (y >= -0.08 && y < -0.03) {
+                v = ax <= 0.14 ? 1 : 0;
+            }
+
+            // ── Middle body  (first → second floor) ──────────────────────
+            else if (y >= -0.03 && y < 0.18) {
+                const t = (y + 0.03) / 0.21;
+                v = ax <= (0.10 - 0.03 * t) ? 1 : 0;
+            }
+
+            // ── Second-floor platform ─────────────────────────────────────
+            else if (y >= 0.18 && y < 0.25) {
+                v = ax <= 0.07 ? 1 : 0;
+            }
+
+            // ── Spire  (second floor → top) ───────────────────────────────
+            else if (y >= 0.25 && y < 0.82) {
+                const t = (y - 0.25) / 0.57;
+                v = ax <= 0.062 * (1 - 0.88 * t) ? 1 : 0;
+            }
+
+            // ── Antenna ───────────────────────────────────────────────────
+            else if (y >= 0.82 && y <= 0.92) {
+                v = ax <= 0.016 ? 1 : 0;
+            }
+
+            raw[row * G + col] = v;
+        }
+    }
+
+    return gaussianBlur(raw, G, G, 1.5);
+}
+
 /** Projected hexagonal lattice (graphene / nanotube cross-section). */
 export function hexGrid(spacing = 0.18) {
     const G   = GRID_SIZE;
