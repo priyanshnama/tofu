@@ -16,6 +16,7 @@
 import physicsCode from '../../wgsl/physics.wgsl?raw';
 import splatCode   from '../../wgsl/splat.wgsl?raw';
 import decayCode   from '../../wgsl/decay.wgsl?raw';
+import bloomCode   from '../../wgsl/bloom.wgsl?raw';
 import renderCode  from '../../wgsl/render.wgsl?raw';
 
 import { DISPATCH } from './buffers.js';
@@ -34,16 +35,17 @@ import { DISPATCH } from './buffers.js';
  * }>}
  */
 export async function buildPipelines(device, buffers, format) {
-    const { atomBufs, sourceBuf, targetBuf, simBuf, densityBuf, velBuf, trailBuf } = buffers;
+    const { atomBufs, sourceBuf, targetBuf, simBuf, densityBuf, velBuf, trailBuf, bloomBuf } = buffers;
 
     // ── Shader modules ──────────────────────────────────────────────────────
     const physicsMod = device.createShaderModule({ label: 'physics', code: physicsCode });
     const splatMod   = device.createShaderModule({ label: 'splat',   code: splatCode   });
     const decayMod   = device.createShaderModule({ label: 'decay',   code: decayCode   });
+    const bloomMod   = device.createShaderModule({ label: 'bloom',   code: bloomCode   });
     const renderMod  = device.createShaderModule({ label: 'render',  code: renderCode  });
 
     // Log any shader compilation errors
-    for (const [name, mod] of [['physics', physicsMod], ['splat', splatMod], ['decay', decayMod], ['render', renderMod]]) {
+    for (const [name, mod] of [['physics', physicsMod], ['splat', splatMod], ['decay', decayMod], ['bloom', bloomMod], ['render', renderMod]]) {
         const info = await mod.getCompilationInfo();
         for (const m of info.messages) {
             if (m.type === 'error') console.error(`[${name}] L${m.lineNum}: ${m.message}`);
@@ -52,7 +54,7 @@ export async function buildPipelines(device, buffers, format) {
     }
 
     // ── Compute pipelines ──────────────────────────────────────────────────
-    const [physicsPipeline, splatPipeline, decayPipeline] = await Promise.all([
+    const [physicsPipeline, splatPipeline, decayPipeline, bloomPipeline] = await Promise.all([
         device.createComputePipelineAsync({
             label:   'physics',
             layout:  'auto',
@@ -67,6 +69,11 @@ export async function buildPipelines(device, buffers, format) {
             label:   'decay',
             layout:  'auto',
             compute: { module: decayMod, entryPoint: 'cs_decay' },
+        }),
+        device.createComputePipelineAsync({
+            label:   'bloom',
+            layout:  'auto',
+            compute: { module: bloomMod, entryPoint: 'cs_bloom' },
         }),
     ]);
 
@@ -83,6 +90,7 @@ export async function buildPipelines(device, buffers, format) {
     const physBGL   = physicsPipeline.getBindGroupLayout(0);
     const splatBGL  = splatPipeline.getBindGroupLayout(0);
     const decayBGL  = decayPipeline.getBindGroupLayout(0);
+    const bloomBGL  = bloomPipeline.getBindGroupLayout(0);
     const renderBGL = renderPipeline.getBindGroupLayout(0);
 
     const buf = (b) => ({ buffer: b });
@@ -125,19 +133,30 @@ export async function buildPipelines(device, buffers, format) {
         ],
     });
 
-    // Render — trail (brightness) + vel (speed tint) + density (speed denominator)
+    // Bloom — Gaussian blur of trail → bloom buffer
+    const bloomBG = device.createBindGroup({
+        label:  'bloom-bg',
+        layout: bloomBGL,
+        entries: [
+            { binding: 0, resource: buf(trailBuf)  },
+            { binding: 1, resource: buf(bloomBuf)  },
+        ],
+    });
+
+    // Render — trail + vel + density + bloom
     const renderBG = device.createBindGroup({
         label:  'render-bg',
         layout: renderBGL,
         entries: [
-            { binding: 0, resource: buf(trailBuf)   },
-            { binding: 1, resource: buf(velBuf)      },
-            { binding: 2, resource: buf(densityBuf)  },
+            { binding: 0, resource: buf(trailBuf)  },
+            { binding: 1, resource: buf(velBuf)    },
+            { binding: 2, resource: buf(densityBuf) },
+            { binding: 3, resource: buf(bloomBuf)  },
         ],
     });
 
-    return { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,
-             physicsBGs, splatBGs, decayBG, renderBG };
+    return { physicsPipeline, splatPipeline, decayPipeline, bloomPipeline, renderPipeline,
+             physicsBGs, splatBGs, decayBG, bloomBG, renderBG };
 }
 
 /**
@@ -155,8 +174,8 @@ export async function buildPipelines(device, buffers, format) {
 const DECAY_DISPATCH = 256;
 
 export function encodeFrame(enc, pipelines, view, slot) {
-    const { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,
-            physicsBGs, splatBGs, decayBG, renderBG } = pipelines;
+    const { physicsPipeline, splatPipeline, decayPipeline, bloomPipeline, renderPipeline,
+            physicsBGs, splatBGs, decayBG, bloomBG, renderBG } = pipelines;
 
     // Physics
     const cp = enc.beginComputePass({ label: 'physics' });
@@ -178,6 +197,13 @@ export function encodeFrame(enc, pipelines, view, slot) {
     dp.setBindGroup(0, decayBG);
     dp.dispatchWorkgroups(DECAY_DISPATCH);
     dp.end();
+
+    // Bloom — Gaussian blur of trail → bloom (soft halo)
+    const bp = enc.beginComputePass({ label: 'bloom' });
+    bp.setPipeline(bloomPipeline);
+    bp.setBindGroup(0, bloomBG);
+    bp.dispatchWorkgroups(DECAY_DISPATCH);
+    bp.end();
 
     // Render
     const rp = enc.beginRenderPass({

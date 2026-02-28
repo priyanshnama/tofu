@@ -22,6 +22,7 @@ export const OT_BYTES      = N * OT_STRIDE;             //   800 000
 export const DENSITY_BYTES = DENSITY_W * DENSITY_H * 4;//   262 144
 export const VEL_BYTES     = DENSITY_BYTES;             //   262 144  (same layout)
 export const TRAIL_BYTES   = DENSITY_BYTES;             //   262 144  (f32, persistent)
+export const BLOOM_BYTES   = DENSITY_BYTES;             //   262 144  (f32, blurred glow)
 
 // Dispatch counts (workgroup size 256)
 export const DISPATCH = Math.ceil(N / 256);             // 391
@@ -54,6 +55,7 @@ export function allocateBuffers(device) {
         densityBuf:              buf(DENSITY_BYTES,  S,     'density'),
         velBuf:                  buf(VEL_BYTES,      S,     'velocity'),
         trailBuf:                buf(TRAIL_BYTES,    S,     'trail'),
+        bloomBuf:                buf(BLOOM_BYTES,    S,     'bloom'),
     };
 }
 
