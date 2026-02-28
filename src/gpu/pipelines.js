@@ -1,51 +1,37 @@
 /**
  * pipelines.js — Build all WebGPU pipelines and bind groups.
  *
- * Three pipelines:
+ * Four pipelines:
  *   physics  (compute) — wander / morph interpolation
  *   splat    (compute) — atom positions → density buffer
- *   render   (render)  — density buffer → screen (fullscreen quad)
+ *   decay    (compute) — density → persistent trail (phosphor afterglow)
+ *   render   (render)  — trail + vel + density → screen (fullscreen quad)
  *
  * Ping-pong convention:
  *   slot = frame & 1
  *   physicsBGs[slot]  — physics reads atomBufs[slot],   writes atomBufs[1-slot]
  *   splatBGs[slot]    — splat   reads atomBufs[1-slot]  (what physics just wrote)
- *   renderBG          — fixed, always reads densityBuf
+ *   decayBG / renderBG — fixed, always same buffers
  */
 
 import physicsCode from '../../wgsl/physics.wgsl?raw';
 import splatCode   from '../../wgsl/splat.wgsl?raw';
 import decayCode   from '../../wgsl/decay.wgsl?raw';
-import bloomCode   from '../../wgsl/bloom.wgsl?raw';
 import renderCode  from '../../wgsl/render.wgsl?raw';
 
 import { DISPATCH } from './buffers.js';
 
-/**
- * @param {GPUDevice} device
- * @param {object}    buffers   — result of allocateBuffers()
- * @param {string}    format    — swap-chain texture format
- * @returns {Promise<{
- *   physicsPipeline : GPUComputePipeline,
- *   splatPipeline   : GPUComputePipeline,
- *   renderPipeline  : GPURenderPipeline,
- *   physicsBGs      : GPUBindGroup[2],
- *   splatBGs        : GPUBindGroup[2],
- *   renderBG        : GPUBindGroup,
- * }>}
- */
 export async function buildPipelines(device, buffers, format) {
-    const { atomBufs, sourceBuf, targetBuf, simBuf, densityBuf, velBuf, trailBuf, bloomBuf } = buffers;
+    const { atomBufs, sourceBuf, targetBuf, simBuf, densityBuf, velBuf, trailBuf } = buffers;
 
     // ── Shader modules ──────────────────────────────────────────────────────
     const physicsMod = device.createShaderModule({ label: 'physics', code: physicsCode });
     const splatMod   = device.createShaderModule({ label: 'splat',   code: splatCode   });
     const decayMod   = device.createShaderModule({ label: 'decay',   code: decayCode   });
-    const bloomMod   = device.createShaderModule({ label: 'bloom',   code: bloomCode   });
     const renderMod  = device.createShaderModule({ label: 'render',  code: renderCode  });
 
     // Log any shader compilation errors
-    for (const [name, mod] of [['physics', physicsMod], ['splat', splatMod], ['decay', decayMod], ['bloom', bloomMod], ['render', renderMod]]) {
+    for (const [name, mod] of [['physics', physicsMod], ['splat', splatMod], ['decay', decayMod], ['render', renderMod]]) {
         const info = await mod.getCompilationInfo();
         for (const m of info.messages) {
             if (m.type === 'error') console.error(`[${name}] L${m.lineNum}: ${m.message}`);
@@ -54,7 +40,7 @@ export async function buildPipelines(device, buffers, format) {
     }
 
     // ── Compute pipelines ──────────────────────────────────────────────────
-    const [physicsPipeline, splatPipeline, decayPipeline, bloomPipeline] = await Promise.all([
+    const [physicsPipeline, splatPipeline, decayPipeline] = await Promise.all([
         device.createComputePipelineAsync({
             label:   'physics',
             layout:  'auto',
@@ -69,11 +55,6 @@ export async function buildPipelines(device, buffers, format) {
             label:   'decay',
             layout:  'auto',
             compute: { module: decayMod, entryPoint: 'cs_decay' },
-        }),
-        device.createComputePipelineAsync({
-            label:   'bloom',
-            layout:  'auto',
-            compute: { module: bloomMod, entryPoint: 'cs_bloom' },
         }),
     ]);
 
@@ -90,7 +71,6 @@ export async function buildPipelines(device, buffers, format) {
     const physBGL   = physicsPipeline.getBindGroupLayout(0);
     const splatBGL  = splatPipeline.getBindGroupLayout(0);
     const decayBGL  = decayPipeline.getBindGroupLayout(0);
-    const bloomBGL  = bloomPipeline.getBindGroupLayout(0);
     const renderBGL = renderPipeline.getBindGroupLayout(0);
 
     const buf = (b) => ({ buffer: b });
@@ -133,37 +113,27 @@ export async function buildPipelines(device, buffers, format) {
         ],
     });
 
-    // Bloom — Gaussian blur of trail → bloom buffer
-    const bloomBG = device.createBindGroup({
-        label:  'bloom-bg',
-        layout: bloomBGL,
-        entries: [
-            { binding: 0, resource: buf(trailBuf)  },
-            { binding: 1, resource: buf(bloomBuf)  },
-        ],
-    });
-
-    // Render — trail + vel + density + bloom
+    // Render — trail (brightness) + vel (speed tint) + density (speed denominator)
     const renderBG = device.createBindGroup({
         label:  'render-bg',
         layout: renderBGL,
         entries: [
-            { binding: 0, resource: buf(trailBuf)  },
-            { binding: 1, resource: buf(velBuf)    },
+            { binding: 0, resource: buf(trailBuf)   },
+            { binding: 1, resource: buf(velBuf)     },
             { binding: 2, resource: buf(densityBuf) },
-            { binding: 3, resource: buf(bloomBuf)  },
         ],
     });
 
-    return { physicsPipeline, splatPipeline, decayPipeline, bloomPipeline, renderPipeline,
-             physicsBGs, splatBGs, decayBG, bloomBG, renderBG };
+    return { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,
+             physicsBGs, splatBGs, decayBG, renderBG };
 }
 
 /**
  * Encode one complete frame into a command encoder:
  *   1. Physics compute pass
  *   2. Splat compute pass
- *   3. Render pass (fullscreen quad)
+ *   3. Decay compute pass  (density → persistent trail)
+ *   4. Render pass         (fullscreen quad)
  *
  * @param {GPUCommandEncoder} enc
  * @param {object}            pipelines  — result of buildPipelines()
@@ -174,8 +144,8 @@ export async function buildPipelines(device, buffers, format) {
 const DECAY_DISPATCH = 256;
 
 export function encodeFrame(enc, pipelines, view, slot) {
-    const { physicsPipeline, splatPipeline, decayPipeline, bloomPipeline, renderPipeline,
-            physicsBGs, splatBGs, decayBG, bloomBG, renderBG } = pipelines;
+    const { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,
+            physicsBGs, splatBGs, decayBG, renderBG } = pipelines;
 
     // Physics
     const cp = enc.beginComputePass({ label: 'physics' });
@@ -197,13 +167,6 @@ export function encodeFrame(enc, pipelines, view, slot) {
     dp.setBindGroup(0, decayBG);
     dp.dispatchWorkgroups(DECAY_DISPATCH);
     dp.end();
-
-    // Bloom — Gaussian blur of trail → bloom (soft halo)
-    const bp = enc.beginComputePass({ label: 'bloom' });
-    bp.setPipeline(bloomPipeline);
-    bp.setBindGroup(0, bloomBG);
-    bp.dispatchWorkgroups(DECAY_DISPATCH);
-    bp.end();
 
     // Render
     const rp = enc.beginRenderPass({
