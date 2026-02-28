@@ -14,10 +14,10 @@
  *   1  trail_buf   — storage read_write  (f32, persistent decayed glow)
  */
 
-const DENSITY_W : u32 = 2560u;
-const DENSITY_H : u32 = 1440u;
-const DECAY     : f32 = 0.91;    // higher persistence fills gaps between frames
-const INV_SCALE : f32 = 1.0 / 256.0;  // bilinear weights are ×256 fixed-point
+const DENSITY_W : u32 = %%DENSITY_W%%;
+const DENSITY_H : u32 = %%DENSITY_H%%;
+const DECAY     : f32 = %%DECAY%%;
+const INV_SCALE : f32 = 1.0 / 256.0;  // Gaussian splat weights are ×256 fixed-point
 
 @group(0) @binding(0) var<storage, read>       density_buf : array<u32>;
 @group(0) @binding(1) var<storage, read_write> trail_buf   : array<f32>;

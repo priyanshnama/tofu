@@ -8,8 +8,8 @@
  * Dispatched as ceil(N/256) workgroups of size 256.
  */
 
-const N     : u32 = 1500000u;
-const SCALE : f32 = 1024.0;   // 1.5M × 1024 = 1.536B < i32 max (2.147B)
+const N     : u32 = %%N%%;
+const SCALE : f32 = %%SCALE%%;
 
 @group(0) @binding(0) var<storage, read>       pos    : array<f32>;          // N×2
 @group(0) @binding(1) var<storage, read>       labels : array<u32>;          // N

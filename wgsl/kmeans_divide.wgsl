@@ -10,8 +10,8 @@
  * One thread per centroid, dispatched as ceil(K/64) workgroups of size 64.
  */
 
-const K     : u32 = 512u;
-const SCALE : f32 = 1024.0;   // must match kmeans_update.wgsl
+const K     : u32 = %%K%%;
+const SCALE : f32 = %%SCALE%%;
 
 // Declared as non-atomic for reading — safe because the update pass has
 // fully completed (separate command encoder submission) before this runs.

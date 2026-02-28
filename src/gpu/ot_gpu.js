@@ -22,15 +22,19 @@
  * the queue guarantees ordering between writeBuffer and the next submit.
  */
 
-import assignCode from '../../wgsl/kmeans_assign.wgsl?raw';
-import updateCode from '../../wgsl/kmeans_update.wgsl?raw';
-import divideCode from '../../wgsl/kmeans_divide.wgsl?raw';
+import _assignCode from '../../wgsl/kmeans_assign.wgsl?raw';
+import _updateCode from '../../wgsl/kmeans_update.wgsl?raw';
+import _divideCode from '../../wgsl/kmeans_divide.wgsl?raw';
+import { applyConstants } from './shader-utils.js';
+
+const assignCode = applyConstants(_assignCode);
+const updateCode = applyConstants(_updateCode);
+const divideCode = applyConstants(_divideCode);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const K       = 512;      // centroids per cloud
-const K_ITERS = 6;        // k-means iterations (converges well in 6)
-export const OT_N = 1_500_000;
+import { N as OT_N, K, K_ITERS } from '../constants.js';
+export { OT_N };
 
 const K_F32_BYTES = K * 2 * 4;       // K centroids × 2 floats × 4 B  =   4 096
 const K_I32_BYTES = K * 4;           // K × i32                        =   2 048

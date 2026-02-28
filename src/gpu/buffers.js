@@ -10,9 +10,8 @@
  * All sizes are exported as named constants so shaders and JS stay in sync.
  */
 
-export const N            = 1_500_000;
-export const DENSITY_W    = 2560;
-export const DENSITY_H    = 1440;
+import { N, DENSITY_W, DENSITY_H } from '../constants.js';
+export { N, DENSITY_W, DENSITY_H };
 
 // Derived sizes
 const ATOM_STRIDE   = 4 * 4;                            // 4 × f32 = 16 bytes

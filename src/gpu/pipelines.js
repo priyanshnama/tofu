@@ -14,12 +14,19 @@
  *   decayBG / renderBG — fixed, always same buffers
  */
 
-import physicsCode from '../../wgsl/physics.wgsl?raw';
-import splatCode   from '../../wgsl/splat.wgsl?raw';
-import decayCode   from '../../wgsl/decay.wgsl?raw';
-import renderCode  from '../../wgsl/render.wgsl?raw';
+import _physicsCode from '../../wgsl/physics.wgsl?raw';
+import _splatCode   from '../../wgsl/splat.wgsl?raw';
+import _decayCode   from '../../wgsl/decay.wgsl?raw';
+import _renderCode  from '../../wgsl/render.wgsl?raw';
 
 import { DISPATCH } from './buffers.js';
+import { DENSITY_W, DENSITY_H } from '../constants.js';
+import { applyConstants } from './shader-utils.js';
+
+const physicsCode = applyConstants(_physicsCode);
+const splatCode   = applyConstants(_splatCode);
+const decayCode   = applyConstants(_decayCode);
+const renderCode  = applyConstants(_renderCode);
 
 export async function buildPipelines(device, buffers, format) {
     const { atomBufs, sourceBuf, targetBuf, simBuf, densityBuf, velBuf, trailBuf } = buffers;
@@ -140,8 +147,7 @@ export async function buildPipelines(device, buffers, format) {
  * @param {GPUTextureView}    view       — current swap-chain texture view
  * @param {number}            slot       — frame & 1  (ping-pong selector)
  */
-// 2560×1440 = 3686400 texels / 256 threads per workgroup = 14400 workgroups
-const DECAY_DISPATCH = 14400;
+const DECAY_DISPATCH = (DENSITY_W * DENSITY_H) / 256;
 
 export function encodeFrame(enc, pipelines, view, slot) {
     const { physicsPipeline, splatPipeline, decayPipeline, renderPipeline,
