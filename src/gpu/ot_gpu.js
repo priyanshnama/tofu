@@ -25,11 +25,13 @@
 import _assignCode from '../../wgsl/kmeans_assign.wgsl?raw';
 import _updateCode from '../../wgsl/kmeans_update.wgsl?raw';
 import _divideCode from '../../wgsl/kmeans_divide.wgsl?raw';
+import _freezeCode from '../../wgsl/freeze_filter.wgsl?raw';
 import { applyConstants } from './shader-utils.js';
 
 const assignCode = applyConstants(_assignCode);
 const updateCode = applyConstants(_updateCode);
 const divideCode = applyConstants(_divideCode);
+const freezeCode = applyConstants(_freezeCode);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -79,11 +81,16 @@ async function compilePipeline(device, code, entryPoint, label) {
  * Call once at startup; reuse the handle for every transition.
  */
 export async function buildOTGpu(device) {
-    const [assignPipeline, updatePipeline, dividePipeline] = await Promise.all([
-        compilePipeline(device, assignCode, 'kmeans_assign', 'km-assign'),
-        compilePipeline(device, updateCode, 'kmeans_update', 'km-update'),
-        compilePipeline(device, divideCode, 'kmeans_divide', 'km-divide'),
+    const [assignPipeline, updatePipeline, dividePipeline, freezePipeline] = await Promise.all([
+        compilePipeline(device, assignCode, 'kmeans_assign',  'km-assign'),
+        compilePipeline(device, updateCode, 'kmeans_update',  'km-update'),
+        compilePipeline(device, divideCode, 'kmeans_divide',  'km-divide'),
+        compilePipeline(device, freezeCode, 'freeze_filter',  'freeze-filter'),
     ]);
+
+    // Freeze-filter staging buffers (OT result + current-positions reference)
+    const assignedBuf    = mkBuf(device, N_F32_BYTES, S | CD, 'ot-assigned');
+    const currentRefBuf  = mkBuf(device, N_F32_BYTES, S | CD, 'ot-current-ref');
 
     // Positions buffer — reused for src then tgt
     const posBuf        = mkBuf(device, N_F32_BYTES, S | CD,       'km-pos');
@@ -137,11 +144,12 @@ export async function buildOTGpu(device) {
     console.log(`[ot_gpu] ready  K=${K}  iters=${K_ITERS}`);
 
     return {
-        assignPipeline, updatePipeline, dividePipeline,
+        assignPipeline, updatePipeline, dividePipeline, freezePipeline,
         posBuf, centroidsBuf, labelsBuf,
         sumXBuf, sumYBuf, countsBuf,
         centroidsStaging, labelsStaging,
         assignBG, updateBG, divideBG,
+        assignedBuf, currentRefBuf,
     };
 }
 
@@ -276,15 +284,17 @@ function sortByAngle(pos, n, cx, cy) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Assign N source atoms to N target positions using GPU K-means + CPU centroid OT.
+ * Assign N source atoms to N target positions using GPU K-means + CPU centroid OT,
+ * then run the freeze_filter shader on GPU to write the final per-atom targets
+ * directly into targetBuf.
  *
  * @param {GPUDevice}    device
- * @param {object}       ot       Handle from buildOTGpu()
- * @param {Float32Array} srcPos   N×2 source positions
- * @param {Float32Array} tgtPos   N×2 target positions
- * @returns {Promise<Float32Array>} N×2 assigned target per source atom
+ * @param {object}       ot          Handle from buildOTGpu()
+ * @param {Float32Array} srcPos      N×2 current atom positions (used as OT source)
+ * @param {Float32Array} tgtPos      N×2 freshly sampled target positions
+ * @param {GPUBuffer}    targetBuf   Simulation target buffer — written in-place by shader
  */
-export async function assignTargetsGpu(device, ot, srcPos, tgtPos) {
+export async function assignTargetsGpu(device, ot, srcPos, tgtPos, targetBuf) {
     // Run k-means sequentially (they share GPU buffers)
     const src = await runKMeans(device, ot, srcPos);
     const tgt = await runKMeans(device, ot, tgtPos);
@@ -308,7 +318,6 @@ export async function assignTargetsGpu(device, ot, srcPos, tgtPos) {
         const pool = tgtCluster[tgtC];
 
         if (pool.length === 0) {
-            // Empty cluster fallback: use centroid position directly
             result[i * 2    ] = tgt.centroids[tgtC * 2    ];
             result[i * 2 + 1] = tgt.centroids[tgtC * 2 + 1];
             continue;
@@ -321,5 +330,31 @@ export async function assignTargetsGpu(device, ot, srcPos, tgtPos) {
         result[i * 2 + 1] = tgtPos[j * 2 + 1];
     }
 
+    // ── GPU freeze filter ─────────────────────────────────────────────────────
+    // Upload OT result and current-position reference to GPU, then dispatch
+    // the shader which decides per-atom whether to freeze or move.
+    // Output lands directly in targetBuf — no CPU readback or JS loop needed.
+    device.queue.writeBuffer(ot.assignedBuf,   0, result);
+    device.queue.writeBuffer(ot.currentRefBuf, 0, srcPos);  // srcPos = cpuTarget
+
+    const freezeBG = device.createBindGroup({
+        label:   'freeze-bg',
+        layout:  ot.freezePipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: ot.assignedBuf   } },
+            { binding: 1, resource: { buffer: ot.currentRefBuf } },
+            { binding: 2, resource: { buffer: targetBuf        } },
+        ],
+    });
+
+    const enc  = device.createCommandEncoder({ label: 'freeze-filter' });
+    const pass = enc.beginComputePass({ label: 'freeze-filter' });
+    pass.setPipeline(ot.freezePipeline);
+    pass.setBindGroup(0, freezeBG);
+    pass.dispatchWorkgroups(Math.ceil(OT_N / 256));
+    pass.end();
+    device.queue.submit([enc.finish()]);
+
+    // Return pre-filter result so caller can update cpuTarget for next morph's reference.
     return result;
 }

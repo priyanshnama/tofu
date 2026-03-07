@@ -97,12 +97,14 @@ async function main() {
 
     // ── Core transition primitive ──────────────────────────────────────────────
 
+    // newTargets: pre-filter OT result (used to track cpuTarget for next morph).
+    // targetBuf on GPU is already written by the freeze_filter shader — no write here.
     function goToPositions(newTargets, label) {
         cpuSource.set(cpuTarget);
         cpuTarget.set(newTargets);
 
         device.queue.writeBuffer(buffers.sourceBuf, 0, cpuSource);
-        device.queue.writeBuffer(buffers.targetBuf, 0, cpuTarget);
+        // targetBuf already written by freeze_filter shader
 
         morph.t    = 0.0;
         morph.hold = 0.0;
@@ -133,12 +135,15 @@ async function main() {
             setPhase('nca · growing');
             const organicDensity = await runNCA(device, nca, goalGrid);
 
-            // ── Sampling + GPU OT ────────────────────────────────────────────
+            // ── Sampling + GPU OT + freeze filter (all on GPU) ───────────────
+            // cpuTarget = current resting positions, used as OT source.
+            // assignTargetsGpu writes the freeze-filtered result directly into
+            // targetBuf on GPU; returns the pre-filter CPU array for cpuTarget tracking.
             setPhase('ot · k-means');
-            const rawTgt   = sampleFromDensity(organicDensity);
-            const assigned = await assignTargetsGpu(device, ot, cpuSource, rawTgt);
+            const rawTgt  = sampleFromDensity(organicDensity);
+            const otResult = await assignTargetsGpu(device, ot, cpuTarget, rawTgt, buffers.targetBuf);
 
-            goToPositions(assigned, canonical);
+            goToPositions(otResult, canonical);
             return canonical;
 
         } finally {
